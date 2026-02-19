@@ -3,71 +3,97 @@ import os
 import datetime
 
 def leggi_json(percorso_file):
-    """Apre e legge un file JSON salvato in locale."""
     try:
         with open(percorso_file, 'r', encoding='utf-8') as f:
             return json.load(f)
     except FileNotFoundError:
-        print(f"[ERRORE] Il file {percorso_file} non esiste. Hai lanciato prima l'estrattore?")
         return None
 
-def trasforma_dati_sonno(dati_grezzi):
-    """Mappa ed estrae i KPI strategici dal JSON del sonno."""
-    if not dati_grezzi:
-        return None
-        
-    # Inizializziamo un dizionario pulito per il nostro Data Warehouse
-    kpi_sonno = {
+def trasforma_dati_sonno_batteria(json_sonno, json_batteria):
+    kpi = {
         "Data": str(datetime.date.today()),
-        "Voto_Sonno": None,
-        "Qualita_Sonno": None,
-        "Ore_Totali": None
+        "Voto_Sonno": "N/D",
+        "Qualita_Sonno": "N/D",
+        "Ore_Totali": "N/D",
+        "Body_Battery": "N/D"
     }
     
-    # Navighiamo nel JSON in modo sicuro usando il metodo .get()
-    # Adattiamo la ricerca alla struttura tipica del payload Garmin
+    if json_sonno:
+        try:
+            daily_sleep = json_sonno.get("dailySleepDTO", json_sonno)
+            kpi["Qualita_Sonno"] = daily_sleep.get("sleepScoreFeedback", "N/D")
+            kpi["Voto_Sonno"] = daily_sleep.get("sleepScores", {}).get("overall", {}).get("value", "N/D")
+            secondi = daily_sleep.get("sleepTimeSeconds", 0)
+            kpi["Ore_Totali"] = round(secondi / 3600, 2) if secondi else 0
+        except Exception as e:
+            print(f"Errore parsing sonno: {e}")
+
+    # NUOVA LOGICA: Peschiamo l'ultimo valore puntuale della Body Battery
+    if json_batteria and isinstance(json_batteria, list) and len(json_batteria) > 0:
+        try:
+            dati_bb = json_batteria[0]
+            if "bodyBatteryValuesArray" in dati_bb:
+                valori = dati_bb["bodyBatteryValuesArray"]
+                # Filtriamo i valori nulli e prendiamo l'ultimo elemento valido dell'array
+                valori_validi = [v[1] for v in valori if v[1] is not None]
+                if valori_validi:
+                    kpi["Body_Battery"] = valori_validi[-1] 
+        except Exception as e:
+            print(f"Errore parsing body battery: {e}")
+            
+    return kpi
+
+    # Estrazione Body Battery
+    if json_batteria and isinstance(json_batteria, list) and len(json_batteria) > 0:
+        try:
+            dati_bb = json_batteria[0]
+            if "stat" in dati_bb:
+                kpi["Body_Battery_Max"] = dati_bb["stat"].get("highestValue", "N/D")
+                kpi["Body_Battery_Min"] = dati_bb["stat"].get("lowestValue", "N/D")
+        except Exception as e:
+            print(f"Errore parsing body battery: {e}")
+            
+    return kpi
+
+def trasforma_attivita(json_attivita):
+    lista_pulita = []
+    if not json_attivita:
+        return lista_pulita
+        
     try:
-        # Peschiamo i dati dal nodo principale (potrebbe variare leggermente, ma questo è lo standard)
-        daily_sleep = dati_grezzi.get("dailySleepDTO", dati_grezzi)
-        
-        # Estraiamo i valori esatti che hai individuato tu!
-        feedback = daily_sleep.get("sleepScoreFeedback", "N/D")
-        
-        # Il voto è dentro il dizionario "sleepScores", poi dentro "overall", poi "value"
-        sleep_scores = daily_sleep.get("sleepScores", {})
-        overall = sleep_scores.get("overall", {})
-        voto = overall.get("value", "N/D")
-        
-        # Calcoliamo le ore totali (Garmin le dà in secondi)
-        secondi_totali = daily_sleep.get("sleepTimeSeconds", 0)
-        ore_totali = round(secondi_totali / 3600, 2) if secondi_totali else 0
-        
-        # Popoliamo il nostro record pulito
-        kpi_sonno["Voto_Sonno"] = voto
-        kpi_sonno["Qualita_Sonno"] = feedback
-        kpi_sonno["Ore_Totali"] = ore_totali
-        
-        return kpi_sonno
-        
+        for act in json_attivita:
+            # Calcolo conversioni per il Data Warehouse
+            metri = act.get("distance", 0)
+            km = round(metri / 1000, 2) if metri else 0
+            
+            secondi = act.get("duration", 0)
+            minuti = round(secondi / 60, 2) if secondi else 0
+            
+            lista_pulita.append({
+                "ID_Attivita": act.get("activityId", "N/D"),
+                "Data_Ora": act.get("startTimeLocal", "N/D"),
+                "Tipo": act.get("activityType", {}).get("typeKey", "Sconosciuto"),
+                "Distanza_km": km,
+                "Durata_min": minuti,
+                "FC_Media": act.get("averageHR", 0),
+                "Calorie": act.get("calories", 0)
+            })
     except Exception as e:
-        print(f"Errore durante il parsing del sonno: {e}")
-        return None
+        print(f"Errore parsing attività: {e}")
+        
+    return lista_pulita
 
 if __name__ == "__main__":
     oggi = datetime.date.today()
-    print(f"--- Avvio processo di Trasformazione (Data Mapping) per la data {oggi} ---")
+    print(f"--- Avvio Trasformazione per la data {oggi} ---")
     
-    # 1. Definiamo i percorsi dei file grezzi
-    file_sonno = os.path.join("dati_grezzi", f"sonno_{oggi}.json")
+    f_sonno = os.path.join("dati_grezzi", f"sonno_{oggi}.json")
+    f_batt = os.path.join("dati_grezzi", f"body_battery_{oggi}.json")
+    f_att = os.path.join("dati_grezzi", f"attivita_{oggi}.json")
     
-    # 2. Leggiamo il dato grezzo
-    json_sonno = leggi_json(file_sonno)
+    kpi_giornalieri = trasforma_dati_sonno_batteria(leggi_json(f_sonno), leggi_json(f_batt))
+    attivita_pulite = trasforma_attivita(leggi_json(f_att))
     
-    # 3. Trasformiamo il dato
-    if json_sonno:
-        kpi_puliti = trasforma_dati_sonno(json_sonno)
-        print("\n[SUCCESSO] Dati Trasformati Correttamente!")
-        print("-" * 40)
-        for chiave, valore in kpi_puliti.items():
-            print(f"{chiave.ljust(15)} : {valore}")
-        print("-" * 40)
+    print("\n[SUCCESSO] Dati Trasformati Correttamente!")
+    print(f"KPI Generati: {kpi_giornalieri}")
+    print(f"Attività elaborate: {len(attivita_pulite)}")

@@ -84,7 +84,7 @@ if __name__ == "__main__":
             
             # 2. Mostra a schermo per log
             print("=== PAYLOAD MESSAGGIO ===")
-            print(messaggio_generato)
+            print(messaggio_generato.encode('utf-8', 'replace').decode('utf-8'))
             print("=========================\n")
             
             # 3. Spara la notifica sullo smartphone

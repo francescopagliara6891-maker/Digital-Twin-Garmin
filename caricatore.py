@@ -2,41 +2,63 @@ import os
 import datetime
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+from trasformatore import leggi_json, trasforma_dati_sonno_batteria, trasforma_attivita
 
-# Importiamo le logiche dal nostro nodo di Trasformazione
-from trasformatore import leggi_json, trasforma_dati_sonno
-
-def carica_su_sheets(dati_kpi):
-    """Autentica il bot e scrive il record su Google Sheets."""
-    print("Inizializzazione protocollo IAM e connessione a Google Cloud...")
-    
-    # 1. Definizione dello scope (i permessi dell'API)
-    scope = [
-        'https://spreadsheets.google.com/feeds',
-        'https://www.googleapis.com/auth/drive'
-    ]
+def carica_su_sheets(kpi, lista_attivita):
+    print("Connessione a Google Cloud...")
+    scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
     
     try:
-        # 2. Autenticazione tramite la chiave cifrata
         credenziali = ServiceAccountCredentials.from_json_keyfile_name('credenziali_google.json', scope)
         client = gspread.authorize(credenziali)
+        db = client.open('Garmin_DB')
         
-        # 3. Aggancio al database (Foglio Google)
-        print("Connessione al Data Warehouse 'Garmin_DB'...")
-        foglio = client.open('Garmin_DB').sheet1
-        
-        # 4. Mappatura del tracciato record (deve corrispondere alle tue colonne)
-        riga = [
-            dati_kpi.get("Data", "N/D"),
-            dati_kpi.get("Voto_Sonno", "N/D"),
-            dati_kpi.get("Qualita_Sonno", "N/D"),
-            dati_kpi.get("Ore_Totali", "N/D")
+        # 1. Scrittura KPI su foglio 'Sonno'
+        try:
+            foglio_sonno = db.worksheet('Sonno')
+        except gspread.exceptions.WorksheetNotFound:
+            # Autocorrezione se il foglio si chiama ancora Foglio1
+            foglio_sonno = db.sheet1
+            foglio_sonno.update_title('Sonno')
+            
+        riga_sonno = [
+            kpi.get("Data", "N/D"),
+            kpi.get("Voto_Sonno", "N/D"),
+            kpi.get("Qualita_Sonno", "N/D"),
+            kpi.get("Ore_Totali", "N/D"),
+            kpi.get("Body_Battery", "N/D")
         ]
+        foglio_sonno.append_row(riga_sonno)
+        print("-> Record Sonno e Batteria aggiunti.")
         
-        # 5. Commit della transazione (Scrittura)
-        print(f"Commit del record in corso: {riga}")
-        foglio.append_row(riga)
-        print("\n[SUCCESSO GLOBALE] Transazione completata! Il tuo Gemello Digitale è aggiornato in Cloud.")
+        # 2. Scrittura storico su foglio 'Attivita'
+        try:
+            foglio_att = db.worksheet('Attivita')
+        except gspread.exceptions.WorksheetNotFound:
+            print("ERRORE: Foglio 'Attivita' non trovato!")
+            return
+            
+        # Pulizia del foglio e riscrittura massiva delle ultime 20 attività
+        foglio_att.clear()
+        foglio_att.append_row(["ID_Attivita", "Data_Ora", "Tipo", "Distanza_km", "Durata_min", "FC_Media", "Calorie"])
+        
+        dati_da_scrivere = []
+        for act in lista_attivita:
+            dati_da_scrivere.append([
+                act["ID_Attivita"],
+                act["Data_Ora"],
+                act["Tipo"],
+                act["Distanza_km"],
+                act["Durata_min"],
+                act["FC_Media"],
+                act["Calorie"]
+            ])
+            
+        if dati_da_scrivere:
+            foglio_att.append_rows(dati_da_scrivere)
+        print(f"-> {len(dati_da_scrivere)} Attività sincronizzate con successo.")
+        
+        print("\n[SUCCESSO GLOBALE] Data Warehouse aggiornato in Cloud.")
         
     except Exception as e:
         print(f"\n[ERRORE DI SISTEMA] Fallimento durante il caricamento: {e}")
@@ -45,14 +67,12 @@ if __name__ == "__main__":
     oggi = datetime.date.today()
     print(f"--- Avvio processo di Caricamento (Load) per la data {oggi} ---")
     
-    # Recuperiamo il file generato nello staging
-    file_sonno = os.path.join("dati_grezzi", f"sonno_{oggi}.json")
-    json_sonno = leggi_json(file_sonno)
+    f_sonno = os.path.join("dati_grezzi", f"sonno_{oggi}.json")
+    f_batt = os.path.join("dati_grezzi", f"body_battery_{oggi}.json")
+    f_att = os.path.join("dati_grezzi", f"attivita_{oggi}.json")
     
-    if json_sonno:
-        # Trasformiamo i dati al volo
-        kpi = trasforma_dati_sonno(json_sonno)
-        
-        # Se abbiamo i KPI, lanciamo il caricamento
-        if kpi:
-            carica_su_sheets(kpi)
+    kpi = trasforma_dati_sonno_batteria(leggi_json(f_sonno), leggi_json(f_batt))
+    attivita = trasforma_attivita(leggi_json(f_att))
+    
+    if kpi:
+        carica_su_sheets(kpi, attivita)
