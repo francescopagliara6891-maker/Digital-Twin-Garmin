@@ -82,13 +82,17 @@ if __name__ == "__main__":
             # 1. Genera il messaggio tramite l'IA
             messaggio_generato = genera_messaggio_coach(ultimi_dati)
             
-            # 2. Mostra a schermo per log
+            # --- INIEZIONE LINK DASHBOARD ---
+            url_dashboard = "https://francesco-digital-twin-garmin.streamlit.app/"
+            messaggio_finale = f"{messaggio_generato}\n\n📡 Accesso SOC Dashboard:\n{url_dashboard}"
+            
+            # 2. Mostra a schermo per log (con il fix per Windows)
             print("=== PAYLOAD MESSAGGIO ===")
-            print(messaggio_generato.encode('utf-8', 'replace').decode('utf-8'))
+            print(messaggio_finale.encode('utf-8', 'replace').decode('utf-8'))
             print("=========================\n")
             
             # 3. Spara la notifica sullo smartphone
-            invia_notifica_telegram(messaggio_generato)
+            invia_notifica_telegram(messaggio_finale)
             
         except Exception as e:
             print(f"Errore critico durante l'elaborazione o l'invio: {e}")
