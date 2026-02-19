@@ -1,0 +1,6 @@
+garminconnect
+python-dotenv
+google-genai
+requests
+gspread
+oauth2client
