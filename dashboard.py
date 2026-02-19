@@ -16,12 +16,21 @@ st.markdown("---")
 def carica_dati():
     scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
     try:
-        # TENTATIVO 1: Ambiente Cloud (Streamlit Secrets)
-        try:
-            credenziali_dict = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
-            credenziali = ServiceAccountCredentials.from_json_keyfile_dict(credenziali_dict, scope)
-        except Exception:
-            # TENTATIVO 2: Ambiente Locale (Fallback sul PC)
+        if "GOOGLE_CREDENTIALS" in st.secrets:
+            # SIAMO IN CLOUD
+            try:
+                segreto = st.secrets["GOOGLE_CREDENTIALS"]
+                # Streamlit a volte converte in automatico il TOML in dizionario
+                if isinstance(segreto, str):
+                    credenziali_dict = json.loads(segreto)
+                else:
+                    credenziali_dict = dict(segreto)
+                credenziali = ServiceAccountCredentials.from_json_keyfile_dict(credenziali_dict, scope)
+            except Exception as ex_cloud:
+                st.error(f"Errore di parsing dei Secrets in Cloud: {ex_cloud}")
+                return pd.DataFrame(), pd.DataFrame()
+        else:
+            # SIAMO SUL PC LOCALE
             credenziali = ServiceAccountCredentials.from_json_keyfile_name('credenziali_google.json', scope)
             
         client = gspread.authorize(credenziali)
@@ -31,7 +40,7 @@ def carica_dati():
         df_att = pd.DataFrame(db.worksheet('Attivita').get_all_records())
         return df_sonno, df_att
     except Exception as e:
-        st.error(f"Errore connessione DB: {e}")
+        st.error(f"Errore di connessione globale: {e}")
         return pd.DataFrame(), pd.DataFrame()
 
 df_sonno, df_att = carica_dati()
