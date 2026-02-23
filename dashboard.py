@@ -110,7 +110,8 @@ if not df_sonno.empty and not df_att.empty:
     
     # Normalizziamo alcuni valori per il radar (scala 0-100)
     voto_sonno = int(ultimo_sonno['Voto_Sonno']) if str(ultimo_sonno['Voto_Sonno']).isdigit() else 0
-    bb_radar = bb_val if bb_val > 0 else 50 # Default se assente
+    bb_raw = str(ultimo_sonno['Body_Battery'])
+    bb_radar = int(bb_raw) if bb_raw.isdigit() and int(bb_raw) > 0 else 50 # Default 50 se N/D
     
     # Se l'ultima attività è stata tosta (es. fc > 130), lo stress fisico è più alto
     fc_ultima = int(ultima_att['FC_Media']) if str(ultima_att['FC_Media']).isdigit() else 0
